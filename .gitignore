@@ -1,4 +1,14 @@
+# generated / runtime
 data/seed/*.json
+data/db/
+data/events/
+*.db
+
+# python
 __pycache__/
 *.pyc
+
+# secrets & os cruft
 .env
+.DS_Store
+.pytest_cache/

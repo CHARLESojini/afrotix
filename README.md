@@ -53,3 +53,32 @@ afrotix/
 ├── Makefile
 └── requirements.txt
 ```
+
+## Phase 2 — the saga (now runnable)
+
+The purchase saga lives in `afrotix/saga/engine.py`, coordinating three
+isolated services (`afrotix/services.py`), each with its own database. Every
+transition is written to an append-only JSONL log (`afrotix/saga/eventlog.py`),
+the bronze contract for the analytics plane.
+
+```bash
+pip install -r requirements.txt
+
+# prove the rollback logic
+pytest -q
+
+# generate ~8k events from 2,000 purchases (a realistic mix of outcomes)
+python -m scripts.simulate --runs 2000 --payment-failure-rate 0.12 --cancel-rate 0.05
+#   -> data/events/saga_events.jsonl
+
+# or run the orchestrator API
+uvicorn afrotix.api:app --reload         # POST /purchase, GET /health
+# containerized:
+docker compose up --build
+```
+
+A purchase runs **reserve → charge → issue**; any failure undoes the prior
+steps in reverse (**void → refund → release**) and the saga closes as
+`compensated` with a reason (`payment_declined`, `sold_out`, `issue_error`,
+`customer_cancellation`). That reason is what makes `fct_saga_outcomes`
+worth building in Phase 4.

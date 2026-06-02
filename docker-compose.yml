@@ -1,0 +1,18 @@
+# Phase 2: runs the saga orchestrator as a single container.
+# Phase 7 expands this into per-service containers (inventory/payments/ticketing)
+# backed by Postgres.
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      PAYMENT_FAILURE_RATE: "0.12"
+      AFROTIX_DB_DIR: "/data/db"
+      AFROTIX_EVENT_LOG: "/data/events/saga_events.jsonl"
+      AFROTIX_TIERS: "/app/data/seed/ticket_tiers.json"
+    volumes:
+      - afrotix-data:/data
+
+volumes:
+  afrotix-data:
