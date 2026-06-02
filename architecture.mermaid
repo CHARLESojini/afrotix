@@ -1,0 +1,26 @@
+%% AFROTIX - Afrobeats event ticketing: saga/LRA core + medallion analytics
+flowchart TB
+    Client([Fan buys a ticket]) --> API[Ticketing API<br/>Saga Orchestrator - FastAPI]
+
+    subgraph TX[Transactional Plane: Saga / LRA]
+        direction LR
+        API -->|"reserve / release"| INV[Inventory Service]
+        API -->|"charge / refund"| PAY[Payments Service]
+        API -->|"issue / void"| TIX[Ticketing Service]
+        INV --- INVDB[(events + holds)]
+        PAY --- PAYDB[(payments + refunds)]
+        TIX --- TIXDB[(tickets + attendees)]
+    end
+
+    API ==>|"after: emit terminal event"| BRONZE
+
+    subgraph DE[Analytics Plane: Medallion on Snowflake]
+        direction TB
+        BRONZE[(Bronze<br/>raw_saga_events)] --> SILVER[Silver - dbt<br/>staging + int_saga_lifecycle]
+        SILVER --> GOLD[Gold - dbt marts<br/>fct_ticket_sales<br/>fct_saga_outcomes<br/>dim_event / artist / venue / date]
+        GOLD --> EVI[Evidence dashboard]
+    end
+
+    DAG[[Dagster<br/>orchestrates ingest + dbt runs]] -.-> BRONZE
+    DAG -.-> SILVER
+    DAG -.-> GOLD
