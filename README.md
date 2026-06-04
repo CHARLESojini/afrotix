@@ -82,3 +82,24 @@ steps in reverse (**void → refund → release**) and the saga closes as
 `compensated` with a reason (`payment_declined`, `sold_out`, `issue_error`,
 `customer_cancellation`). That reason is what makes `fct_saga_outcomes`
 worth building in Phase 4.
+
+## Phase 3 — bronze ingestion
+
+The saga event log is landed in a warehouse bronze layer, raw and append-only.
+The target is config-driven: DuckDB locally (default), Snowflake in production.
+
+```bash
+pip install -r requirements.txt
+
+python -m scripts.simulate --runs 2000      # produce the event log
+python -m scripts.load_bronze               # -> data/warehouse/afrotix.duckdb
+python -m scripts.load_bronze               # re-run: idempotent, inserts 0
+
+# flip to Snowflake when ready (no code change):
+pip install -r requirements-snowflake.txt
+WAREHOUSE=snowflake python -m scripts.load_bronze --full-refresh
+```
+
+Bronze lands the SagaEvent fields as typed columns, `payload` as JSON/VARIANT,
+and ingestion metadata (`_row_hash` for idempotency, `_source_file`,
+`_batch_id`, `_loaded_at`). dbt builds silver and gold from here in Phase 4.

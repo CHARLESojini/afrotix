@@ -7,7 +7,7 @@ captured (same habit as the stock-pipeline-k8s tracker).
 - [x] **Phase 0** — Architecture & scaffold
 - [x] **Phase 1** — Data model + Faker seed
 - [x] **Phase 2** — Saga orchestrator (FastAPI, complete/compensate/after)
-- [ ] **Phase 3** — Terminal events → Snowflake bronze
+- [x] **Phase 3** — Terminal events → Snowflake bronze
 - [ ] **Phase 4** — dbt silver + gold marts (incl. `fct_saga_outcomes`)
 - [ ] **Phase 5** — Dagster orchestration
 - [ ] **Phase 6** — Evidence dashboard + saga-failure analysis
@@ -83,3 +83,37 @@ A: A log that's 100% happy-path is useless for analytics. The ~12% declines and
 A: The JSONL file is the durable bronze artifact; the in-memory list is a
 convenience for tests and the run summary. In Phase 3 the file (or a Kafka
 topic) becomes the actual bronze source.
+
+---
+
+## Phase 3 — Bronze ingestion
+
+**Q: What is the "bronze" layer and what rule governs it?**
+A: The raw landing zone of the medallion. Rule: minimally transformed, append-
+only, never rewritten. You keep everything as it arrived so you can always
+reprocess downstream without re-ingesting.
+
+**Q: Why build against an adapter interface instead of just writing to Snowflake?**
+A: Cost and speed. DuckDB gives a free, instant local dev loop; Snowflake is the
+production target. Same loader, same SQL surface — `WAREHOUSE=snowflake` flips
+it. The loader is a delivery driver who only knows the loading dock; the two
+warehouses look identical from there.
+
+**Q: How is the load idempotent if bronze is append-only (no deletes)?**
+A: Each event gets a deterministic SHA-256 `_row_hash`. The loader reads the
+hashes already present and inserts only new ones, so re-running adds nothing.
+`--full-refresh` is the escape hatch that truncates and rebuilds.
+
+**Q: Why store typed columns AND a JSON/VARIANT payload?**
+A: The typed columns (saga_id, event_type, occurred_at, ...) make silver easy to
+write; the `payload` keeps the nested, event-specific bits (hold_id, reason,
+latency_ms) without forcing a schema on them at ingest time.
+
+**Q: What ingestion metadata do we add, and why?**
+A: `_row_hash` (idempotency), `_source_file` and `_batch_id` (lineage — which
+run produced a row), `_loaded_at` (when). This is standard bronze provenance.
+
+**Q: Why DuckDB specifically for local dev?**
+A: It's an in-process analytical database (think "SQLite for analytics"), reads
+JSON natively, and speaks SQL close enough to Snowflake that dbt models built on
+one mostly run on the other.

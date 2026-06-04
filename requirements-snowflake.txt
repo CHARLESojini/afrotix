@@ -1,0 +1,2 @@
+# Install only when flipping WAREHOUSE=snowflake:  pip install -r requirements-snowflake.txt
+snowflake-connector-python>=3.7.0

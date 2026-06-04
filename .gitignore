@@ -11,4 +11,5 @@ __pycache__/
 # secrets & os cruft
 .env
 .DS_Store
-.pytest_cache/
+data/warehouse/
+*.duckdb
