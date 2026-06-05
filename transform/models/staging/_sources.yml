@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Raw landing zone, loaded outside dbt by the warehouse loaders."
+    schema: bronze
+    tables:
+      - name: raw_saga_events
+        description: "Append-only saga lifecycle events (from scripts.load_bronze)."
+      - name: raw_artists
+      - name: raw_venues
+      - name: raw_customers
+      - name: raw_events
+      - name: raw_ticket_tiers

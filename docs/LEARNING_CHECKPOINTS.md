@@ -8,7 +8,7 @@ captured (same habit as the stock-pipeline-k8s tracker).
 - [x] **Phase 1** — Data model + Faker seed
 - [x] **Phase 2** — Saga orchestrator (FastAPI, complete/compensate/after)
 - [x] **Phase 3** — Terminal events → Snowflake bronze
-- [ ] **Phase 4** — dbt silver + gold marts (incl. `fct_saga_outcomes`)
+- [x] **Phase 4** — dbt silver + gold marts (incl. `fct_saga_outcomes`)
 - [ ] **Phase 5** — Dagster orchestration
 - [ ] **Phase 6** — Evidence dashboard + saga-failure analysis
 - [ ] **Phase 7** — (stretch) Kafka bus + EKS/Terraform/Helm deploy
@@ -117,3 +117,46 @@ run produced a row), `_loaded_at` (when). This is standard bronze provenance.
 A: It's an in-process analytical database (think "SQLite for analytics"), reads
 JSON natively, and speaks SQL close enough to Snowflake that dbt models built on
 one mostly run on the other.
+
+---
+
+## Phase 4 — dbt silver + gold marts
+
+**Q: What does each medallion layer do here?**
+A: Bronze = raw landing (events + catalog, loaded outside dbt). Silver = cleaned
+and reshaped (`stg_saga_events` types + lifts payload fields; `int_saga_lifecycle`
+pivots the stream to one row per saga). Gold = business-ready marts
+(`fct_saga_outcomes`, `fct_ticket_sales`, the dims).
+
+**Q: Why pivot the event stream into one row per saga?**
+A: Bronze has many rows per purchase (reserved, charged, issued, closed...).
+Analysis wants one row per *attempt* with its outcome, timestamps, and latency.
+`int_saga_lifecycle` does that with conditional aggregation
+(`max(case when event_type = 'closed' then status end)`), which is the standard
+event-stream-to-entity pivot.
+
+**Q: How do the same models run on both DuckDB and Snowflake?**
+A: The only dialect difference is pulling fields out of the JSON/VARIANT payload.
+That lives in one macro, `extract_json`, which branches on `target.type`
+(`payload->>'k'` for DuckDB, `payload:k::string` for Snowflake). Every model
+calls the macro, so flipping the warehouse changes nothing in the SQL.
+
+**Q: Why is `fct_saga_outcomes` the centerpiece?**
+A: It's the mart that only exists because we routed saga outcomes into the
+warehouse: success rate, failure reasons, which step broke, and latency — the
+reliability story most ticketing analytics never capture.
+
+**Q: Why does `fct_ticket_sales` carry both `amount` and `net_amount`?**
+A: A ticket can be issued and later cancelled. `amount` is gross; `net_amount`
+zeroes out cancellations, so gross vs net revenue both come straight from one
+table (gross $466k vs net $442k in the sample run).
+
+**Q: Why are the catalog dims loaded separately from events?**
+A: Two ingestion paths by design — events are append-only facts (load_bronze),
+the catalog is reference data (load_catalog). Both land in bronze; dbt builds
+conformed dimensions from the catalog tables.
+
+**Q: Why staging as views but marts as tables?**
+A: Staging is light and always-fresh, so views avoid storage and staleness;
+marts are queried repeatedly by dashboards, so materializing them as tables
+makes reads fast. Set once in `dbt_project.yml`.

@@ -13,3 +13,7 @@ __pycache__/
 .DS_Store
 data/warehouse/
 *.duckdb
+transform/target/
+transform/dbt_packages/
+transform/logs/
+transform/.user.yml
