@@ -1,0 +1,61 @@
+version: 2
+
+models:
+  - name: stg_saga_events
+    description: "Typed saga events with payload fields lifted into columns."
+    columns:
+      - name: saga_id
+        tests: [not_null]
+      - name: event_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [reserved, charged, issued, released, refunded, voided, closed]
+
+  - name: int_saga_lifecycle
+    description: "One row per saga: step timestamps, outcome, and flags."
+    columns:
+      - name: saga_id
+        tests: [unique, not_null]
+
+  - name: fct_saga_outcomes
+    description: "One row per purchase attempt, framed for analysis."
+    columns:
+      - name: saga_id
+        tests: [unique, not_null]
+      - name: status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [completed, compensated]
+
+  - name: fct_ticket_sales
+    description: "One row per issued ticket; cancellations flagged."
+    columns:
+      - name: saga_id
+        tests: [unique, not_null]
+      - name: ticket_id
+        tests: [not_null]
+
+  - name: dim_event
+    columns:
+      - name: event_id
+        tests: [unique, not_null]
+  - name: dim_artist
+    columns:
+      - name: artist_id
+        tests: [unique, not_null]
+  - name: dim_venue
+    columns:
+      - name: venue_id
+        tests: [unique, not_null]
+  - name: dim_customer
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+  - name: dim_date
+    columns:
+      - name: date_day
+        tests: [unique, not_null]

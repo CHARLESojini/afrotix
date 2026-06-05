@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Dict, List, Sequence, Set
 
 BRONZE_SCHEMA = os.getenv("BRONZE_SCHEMA", "bronze")
@@ -74,11 +75,25 @@ class DuckDBAdapter(WarehouseAdapter):
     def __init__(self, path: str) -> None:
         import duckdb  # local import keeps the dependency optional
 
-        from pathlib import Path
-
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._con = duckdb.connect(path)
         self._ddl_types = {name: dk for name, dk, _ in COLUMNS}
+
+    def replace_table_from_json(self, table: str, json_path: str) -> int:
+        """Load a JSON-array file into bronze.<table>, replacing it.
+
+        DuckDB reads JSON natively, so a catalog dimension lands in one
+        statement with inferred column types.
+        """
+        self._con.execute(f"CREATE SCHEMA IF NOT EXISTS {BRONZE_SCHEMA}")
+        self._con.execute(
+            f"CREATE OR REPLACE TABLE {BRONZE_SCHEMA}.{table} AS "
+            f"SELECT * FROM read_json_auto(?)",
+            [json_path],
+        )
+        return self._con.execute(
+            f"SELECT COUNT(*) FROM {BRONZE_SCHEMA}.{table}"
+        ).fetchone()[0]
 
     def ensure_schema(self) -> None:
         cols = ", ".join(f"{name} {self._ddl_types[name]}" for name in COLUMN_NAMES)
@@ -136,6 +151,41 @@ class SnowflakeAdapter(WarehouseAdapter):
             connect_kwargs["password"] = os.environ["SNOWFLAKE_PASSWORD"]
         self._con = snowflake.connector.connect(**connect_kwargs)
         self._ddl_types = {name: sf for name, _, sf in COLUMNS}
+
+    def replace_table_from_json(self, table: str, json_path: str) -> int:
+        """Load a JSON-array file into bronze.<table>, replacing it.
+
+        Reads records in Python and inserts them with an inferred typed schema.
+        Fine for catalog-sized reference data; for very large sets prefer a
+        stage + COPY.
+        """
+        import json as _json
+
+        records = _json.loads(Path(json_path).read_text())
+        if not records:
+            return 0
+        keys = list(records[0].keys())
+
+        def _sf_type(value: object) -> str:
+            if isinstance(value, bool):
+                return "BOOLEAN"
+            if isinstance(value, int):
+                return "NUMBER"
+            if isinstance(value, float):
+                return "FLOAT"
+            return "VARCHAR"
+
+        coldefs = ", ".join(f"{k} {_sf_type(records[0][k])}" for k in keys)
+        cur = self._con.cursor()
+        cur.execute(f"CREATE SCHEMA IF NOT EXISTS {BRONZE_SCHEMA}")
+        cur.execute(f"CREATE OR REPLACE TABLE {BRONZE_SCHEMA}.{table} ({coldefs})")
+        placeholders = ", ".join(["%s"] * len(keys))
+        cur.executemany(
+            f"INSERT INTO {BRONZE_SCHEMA}.{table} ({', '.join(keys)}) VALUES ({placeholders})",
+            [tuple(r.get(k) for k in keys) for r in records],
+        )
+        cur.close()
+        return len(records)
 
     def ensure_schema(self) -> None:
         cols = ", ".join(f"{name} {self._ddl_types[name]}" for name in COLUMN_NAMES)

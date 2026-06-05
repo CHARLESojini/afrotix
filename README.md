@@ -103,3 +103,37 @@ WAREHOUSE=snowflake python -m scripts.load_bronze --full-refresh
 Bronze lands the SagaEvent fields as typed columns, `payload` as JSON/VARIANT,
 and ingestion metadata (`_row_hash` for idempotency, `_source_file`,
 `_batch_id`, `_loaded_at`). dbt builds silver and gold from here in Phase 4.
+
+## Phase 4 — dbt silver + gold marts
+
+A dbt project in `transform/` turns bronze into a medallion: silver staging and
+a one-row-per-saga pivot, then gold marts. Runs on DuckDB locally, Snowflake by
+config (`DBT_TARGET=snowflake`). The only dialect difference lives in one macro,
+`extract_json`.
+
+```bash
+pip install -r requirements.txt    # includes dbt-duckdb
+
+# build the warehouse end to end
+python -m scripts.simulate --runs 2000
+python -m scripts.load_bronze       # events  -> bronze.raw_saga_events
+python -m scripts.load_catalog      # catalog -> bronze.raw_artists, etc.
+
+cd transform
+dbt build --profiles-dir .          # 9 models + tests; DuckDB by default
+```
+
+Marts:
+- `fct_saga_outcomes` — one row per purchase attempt: status, reason,
+  failed_step, latency. The reliability mart.
+- `fct_ticket_sales` — one row per issued ticket, with gross `amount` and
+  cancellation-adjusted `net_amount`.
+- `dim_event` (denormalized with artist + venue), `dim_artist`, `dim_venue`,
+  `dim_customer`, `dim_date`.
+
+Flip to Snowflake (after `pip install -r requirements-snowflake.txt`):
+```bash
+WAREHOUSE=snowflake python -m scripts.load_bronze --full-refresh
+WAREHOUSE=snowflake python -m scripts.load_catalog
+cd transform && DBT_TARGET=snowflake dbt build --profiles-dir .
+```
