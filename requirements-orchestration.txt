@@ -1,0 +1,3 @@
+# Install for Phase 5 orchestration:  pip install -r requirements-orchestration.txt
+dagster>=1.7.0
+dagster-webserver>=1.7.0
