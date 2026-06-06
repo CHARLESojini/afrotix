@@ -202,21 +202,37 @@ class SnowflakeAdapter(WarehouseAdapter):
         return result
 
     def insert(self, rows: Sequence[Dict]) -> int:
+        """Append rows to bronze: stage payload as text, then PARSE_JSON into VARIANT.
+
+        Snowflake's executemany cannot rewrite an INSERT ... SELECT PARSE_JSON(...)
+        into a multi-row insert (error 252001), so bulk-load into a temporary
+        text-payload staging table (plain VALUES, which it can batch), then move
+        into the VARIANT table with one set-based INSERT.
+        """
         if not rows:
             return 0
-        # VARIANT columns require PARSE_JSON, so build an INSERT ... SELECT.
-        selects = ", ".join(
-            "PARSE_JSON(%s)" if name == "payload" else "%s" for name in COLUMN_NAMES
-        )
-        sql = (
-            f"INSERT INTO {FQ_TABLE} ({', '.join(COLUMN_NAMES)}) "
-            f"SELECT {selects}"
-        )
-        values = [tuple(row[name] for name in COLUMN_NAMES) for row in rows]
         cur = self._con.cursor()
-        cur.executemany(sql, values)
+        staging = f"{BRONZE_SCHEMA}.{BRONZE_TABLE}_stg"
+        stg_cols = ", ".join(
+            ("payload VARCHAR" if name == "payload" else f"{name} {self._ddl_types[name]}")
+            for name in COLUMN_NAMES
+        )
+        cur.execute(f"CREATE OR REPLACE TEMPORARY TABLE {staging} ({stg_cols})")
+        placeholders = ", ".join(["%s"] * len(COLUMN_NAMES))
+        cur.executemany(
+            f"INSERT INTO {staging} ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})",
+            [tuple(row[name] for name in COLUMN_NAMES) for row in rows],
+        )
+        select_cols = ", ".join(
+            (f"PARSE_JSON({name})" if name == "payload" else name) for name in COLUMN_NAMES
+        )
+        cur.execute(
+            f"INSERT INTO {FQ_TABLE} ({', '.join(COLUMN_NAMES)}) "
+            f"SELECT {select_cols} FROM {staging}"
+        )
+        cur.execute(f"DROP TABLE IF EXISTS {staging}")
         cur.close()
-        return len(values)
+        return len(rows)
 
     def truncate(self) -> None:
         cur = self._con.cursor()
