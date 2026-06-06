@@ -137,3 +137,16 @@ WAREHOUSE=snowflake python -m scripts.load_bronze --full-refresh
 WAREHOUSE=snowflake python -m scripts.load_catalog
 cd transform && DBT_TARGET=snowflake dbt build --profiles-dir .
 ```
+
+## Phase 5 — Dagster orchestration
+
+The five pipeline steps run as Dagster software-defined assets, wired into the
+medallion DAG and a daily schedule.
+
+```bash
+pip install -r requirements-orchestration.txt
+set -a; source .env; set +a
+dagster dev -m orchestration.definitions   # UI at http://localhost:3000
+```
+
+Graph: `catalog_seed -> (saga_events -> bronze_saga_events) + bronze_catalog -> dbt_marts`.

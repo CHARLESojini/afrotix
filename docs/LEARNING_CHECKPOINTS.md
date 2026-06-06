@@ -160,3 +160,26 @@ conformed dimensions from the catalog tables.
 A: Staging is light and always-fresh, so views avoid storage and staleness;
 marts are queried repeatedly by dashboards, so materializing them as tables
 makes reads fast. Set once in `dbt_project.yml`.
+
+---
+
+## Phase 5 — Dagster orchestration
+
+**Q: What does Dagster add over running the scripts by hand?**
+A: Scheduling, lineage, retries, observability. The scripts still do the work;
+Dagster is air-traffic control — sequences them, watches each finish, alerts on
+failure.
+
+**Q: Why model steps as assets instead of tasks/ops?**
+A: Assets model the things produced (bronze tables, marts), not just actions, so
+Dagster tracks each one's lineage and freshness — the medallion as a graph of
+data.
+
+**Q: How does the same graph target DuckDB or Snowflake?**
+A: The assets shell out to the same CLI and inherit WAREHOUSE/DBT_TARGET from the
+environment; source .env before `dagster dev` and the whole graph follows.
+
+**Q: What was the warehouse-split bug?**
+A: The loaders auto-read .env (WAREHOUSE) but dbt doesn't, so DBT_TARGET must be
+set too — and DUCKDB_PATH must not be a single relative path, since the loaders
+run from the repo root and dbt from transform/.
