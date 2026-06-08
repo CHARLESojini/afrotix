@@ -150,3 +150,12 @@ dagster dev -m orchestration.definitions   # UI at http://localhost:3000
 ```
 
 Graph: `catalog_seed -> (saga_events -> bronze_saga_events) + bronze_catalog -> dbt_marts`.
+
+## Phase 6 — Analytics dashboard
+
+An interactive Streamlit dashboard over the dbt gold marts (saga reliability + revenue).
+
+    pip install -r requirements-dashboard.txt
+    streamlit run dashboard/app.py
+
+Reads `data/warehouse/afrotix.duckdb` read-only; override with `AFROTIX_DUCKDB=/path/to/file`.
