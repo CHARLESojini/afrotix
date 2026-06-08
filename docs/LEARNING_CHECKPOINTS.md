@@ -183,3 +183,24 @@ environment; source .env before `dagster dev` and the whole graph follows.
 A: The loaders auto-read .env (WAREHOUSE) but dbt doesn't, so DBT_TARGET must be
 set too — and DUCKDB_PATH must not be a single relative path, since the loaders
 run from the repo root and dbt from transform/.
+
+---
+
+## Phase 6 — Streamlit dashboard
+
+**Q: Why Streamlit reading DuckDB instead of a BI connector?**
+A: A BI tool sits between you and the warehouse with its own auth/connection
+layer (the part that fought us). Streamlit is just Python opening the DuckDB
+file read-only — no connector, no key encoding, no path resolution. dbt already
+produced the marts; the app is a thin read-only presentation layer over them.
+
+**Q: Why @st.cache_data on the query function?**
+A: Streamlit re-runs the whole script top-to-bottom on every interaction.
+Without caching, each rerun re-hits DuckDB. The decorator memoizes by SQL string
+so identical queries return the cached DataFrame.
+
+**Q: Why did the numbers read double (4000/702) at first?**
+A: simulate appends to data/events/saga_events.jsonl. Running it twice without
+deleting the log doubled every saga. Rates were unaffected (still 82.5%), but
+absolute counts and revenue were 2x. Fix: rm the event log before re-simulating,
+then rebuild. Canonical truth: 1649 completed / 351 compensated.
